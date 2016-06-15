@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <title>SubtleCrypto</title>
+
+  <link rel="stylesheet" type="text/css" href="css/bootstrap.min.css">
+
+  <style type="text/css">
+    html, body {
+      text-align: center;
+      margin: 0 auto;
+    }
+    #main-container {
+      text-align: center;
+    }
+  </style>
+
+  <script type="text/javascript" src="js/jquery-2.2.4.min.js"></script>
+  <script type="text/javascript" src="js/bootstrap.min.js"></script>
+  <script type="text/javascript">
+    $(document).ready(function(){
+
+      var passphrase = null;
+      var key = null;
+      var passphraseHash = null;
+      var iv = window.crypto.getRandomValues(new Uint8Array(16));
+
+      function strToAb(str) {
+        return new TextEncoder("utf8").encode(str);
+      }
+
+      function aBToStr(ba) {
+        return new TextDecoder("utf8").decode(ba);
+      }
+
+      function aBToB64(buffer) {
+        var binary = '';
+        var bytes = new Uint8Array( buffer );
+        var len = bytes.byteLength;
+
+        for (var i = 0; i < len; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+        return btoa(binary);
+      }
+
+      function b64ToAb(str) {
+        var binary_string = atob(str);
+        var len = binary_string.length;
+        var bytes = new Uint8Array( len );
+        for (var i = 0; i < len; i++)        {
+            bytes[i] = binary_string.charCodeAt(i);
+        }
+        return bytes.buffer;
+      }      
+
+      function generatePassphraseHash(passphrase, cb) {
+        window.crypto.subtle.digest(
+            {
+                name: "SHA-256",
+            },
+            strToAb(passphrase) //The data you want to hash as an ArrayBuffer
+        )
+        .then(cb)
+        .catch(function(error){
+            console.error(error);
+        });        
+      }
+
+      function generateKey(passphraseHash, cb) {
+        window.crypto.subtle.importKey(
+            "raw", //can be "jwk" or "raw"
+            passphraseHash,
+            {   //this is the algorithm options
+                name: "AES-CBC",
+            },
+            false, //whether the key is extractable (i.e. can be used in exportKey)
+            ["encrypt", "decrypt"] //can be "encrypt", "decrypt", "wrapKey", or "unwrapKey"
+        )
+        .then(cb)
+        .catch(function(error){
+            console.error(error);
+        });        
+      }
+
+      function encrypt(key, data, cb) {
+        window.crypto.subtle.encrypt(
+            {
+                name: "AES-CBC",
+                //Don't re-use initialization vectors!
+                //Always generate a new iv every time your encrypt!
+                iv: iv,
+            },
+            key, //from generateKey or importKey above
+            data //ArrayBuffer of data you want to encrypt
+        )
+        .then(cb) //will pass as parameter encrypted data
+        .catch(function(error){
+            console.error(error);
+        });        
+      }
+
+      function decrypt(key, data, cb) {
+        window.crypto.subtle.decrypt(
+            {
+                name: "AES-CBC",
+                iv: iv, //The initialization vector you used to encrypt
+            },
+            key, //from generateKey or importKey above
+            data //ArrayBuffer of the data
+        )
+        .then(cb)
+        .catch(function(error){
+            console.error(error);
+        });        
+      }      
+
+      function testHash() {
+        window.crypto.subtle.digest(
+            {
+                name: "SHA-256",
+            },
+            new Uint8Array(new TextEncoder("utf8").encode("Data to be hashed")) //The data you want to hash as an ArrayBuffer
+        )
+        .then(function(hash){
+            //returns the hash as an ArrayBuffer
+            console.log(new Uint8Array(hash));
+        })
+        .catch(function(err){
+            console.error(err);
+        });        
+      }
+
+      $("#btn-encrypt").click(function(){
+        if ($("#passphrase").val() == '') {
+          alert("You need to set a passphrase");
+          return false;
+        }
+        if ($("#text-to-encrypt").val() == '') {
+          alert("You need to set the text to encrypt");
+          return false;
+        }
+
+        generatePassphraseHash($("#passphrase").val(), function(hash){
+          generateKey(hash, function(key){
+            data = strToAb($("#text-to-encrypt").val());
+            encrypt(key, data, function(encrypted){
+              console.log(encrypted);
+              $("#base64-result").val(aBToB64(encrypted));
+            });
+          });
+        });
+      });
+
+      $("#btn-decrypt").click(function(){
+        if ($("#passphrase").val() == '') {
+          alert("You need to set the text to encrypt");
+          return false;
+        }
+
+        generatePassphraseHash($("#passphrase").val(), function(hash){
+          generateKey(hash, function(key){
+            data = b64ToAb($("#base64-result").val());
+            decrypt(key, data, function(decrypted){
+              console.log(decrypted);
+              $("#decrypted-text").val(aBToStr(decrypted));
+            });
+          });
+        });
+      });
+
+    testHash();
+    });
+  </script>
+
+</head>
+<body>
+  <div class="container-fluid" id="main-container">
+    <div class="row">
+      <div class="col-md-6 col-md-offset-3">
+        <h1>Subtle Crypto Demo</h1>
+      </div>
+    </div>
+
+    <form>
+    <div class="row">
+      <div class="col-md-6 col-md-offset-3">
+        <div class="form-group">
+          <input type="text" name="passphrase" id="passphrase" class="form-control" placeholder="passphrase">
+        </div>
+      </div>      
+    </div>
+    <div class="row">
+      <div class="col-md-6 col-md-offset-3">
+        <div class="form-group">
+          <textarea name="text-to-encrypt" id="text-to-encrypt" class="form-control" rows="3" placeholder="text to encrypt"></textarea>
+        </div>
+      </div>  
+    </div>
+    <div class="row">
+      <div class="col-md-6 col-md-offset-3">
+        <div class="form-group">
+          <input type="text" name="initialization-vector" id="initialization-vector" class="form-control" placeholder="initialization vector" readonly="true">
+        </div>
+      </div>      
+    </div>    
+    <div class="row">
+      <div class="col-md-6 col-md-offset-3">
+        <div class="form-group">
+          <textarea name="base64-result" id="base64-result" class="form-control" rows="3" placeholder="Base64 encoded result" readonly="true"></textarea>
+        </div>
+      </div>  
+    </div>
+    <div class="row">
+      <div class="col-md-6 col-md-offset-3">
+        <div class="form-group">
+          <textarea name="decrypted-text" id="decrypted-text" class="form-control" rows="3" placeholder="decrypted text" readonly="true"></textarea>
+        </div>
+      </div>  
+    </div>
+    <div class="row">
+      <div class="col-md-6 col-md-offset-3">
+        <button id="btn-encrypt" class="btn btn-primary" type="button">encrypt</button>
+        <button id="btn-decrypt" class="btn btn-default" type="button">decrypt</button>
+      </div>
+    </div>        
+    </form>
+
+  </div>
+</body>
+</html>
